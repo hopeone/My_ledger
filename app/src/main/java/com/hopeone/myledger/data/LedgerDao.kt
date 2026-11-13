@@ -65,6 +65,10 @@ interface LedgerDao {
         transaction: TransactionEntity
     )
 
+    // 선택한 고객에게 속한 거래 ID 한 건만 삭제합니다.
+    @Query("DELETE FROM transactions WHERE id = :transactionId AND customerId = :customerId")
+    suspend fun deleteTransactionById(transactionId: Long, customerId: Long)
+
     // 고객별 잔액을 계산합니다.
     // 외상은 더하고 상환은 빼는 방식입니다.
     @Query(

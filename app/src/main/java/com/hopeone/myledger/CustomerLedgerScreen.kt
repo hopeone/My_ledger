@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -72,6 +76,8 @@ internal fun CustomerLedgerScreen(
         dao.getCustomerBalance(customer.id)
     }.collectAsState(initial = null)
     var transactionType by rememberSaveable(customer.id) { mutableStateOf<String?>(null) }
+
+    var transactionToDelete by remember(customer.id) { mutableStateOf<TransactionEntity?>(null) }
 
     BackHandler(onBack = onBack)
 
@@ -114,7 +120,9 @@ internal fun CustomerLedgerScreen(
             when {
                 history == null -> item { Text("거래 내역을 불러오는 중입니다.") }
                 history.isEmpty() -> item { Text("아직 거래 내역이 없습니다.") }
-                else -> items(history, key = { it.id }) { TransactionRow(it) }
+                else -> items(history, key = { it.id }) { transaction ->
+                    TransactionRow(transaction, onDelete = { transactionToDelete = transaction })
+                }
             }
         }
 
@@ -139,11 +147,15 @@ internal fun CustomerLedgerScreen(
             onClose = { transactionType = null }
         )
     }
+
+    transactionToDelete?.let { transaction ->
+        DeleteTransactionDialog(transaction, dao, onClose = { transactionToDelete = null })
+    }
 }
 
 // 저장한 거래 시각을 기기의 시간대로 바꿔 날짜와 시간을 표시합니다.
 @Composable
-private fun TransactionRow(transaction: TransactionEntity) {
+private fun TransactionRow(transaction: TransactionEntity, onDelete: () -> Unit) {
     val dateTime = Instant.ofEpochMilli(transaction.date).atZone(ZoneId.systemDefault())
     val sign = when (transaction.type) {
         CREDIT -> "+"
@@ -151,23 +163,88 @@ private fun TransactionRow(transaction: TransactionEntity) {
         else -> ""
     }
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(transaction.type, Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                Text(sign + formatWon(transaction.amount), fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(transaction.type, Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    Text(sign + formatWon(transaction.amount), fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "${dateTime.format(dateFormat)} ${dateTime.format(timeFormat)}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (transaction.memo.isNotBlank()) {
+                    Text(transaction.memo, Modifier.padding(top = 4.dp))
+                }
             }
-            Text(
-                "${dateTime.format(dateFormat)} ${dateTime.format(timeFormat)}",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            if (transaction.memo.isNotBlank()) {
-                Text(transaction.memo, Modifier.padding(top = 4.dp))
+            IconButton(onClick = onDelete) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_delete_transaction),
+                    contentDescription = "거래 삭제",
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
+}
+
+@Composable
+private fun DeleteTransactionDialog(
+    transaction: TransactionEntity,
+    dao: LedgerDao,
+    onClose: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var deleting by remember { mutableStateOf(false) }
+    var deleteFailed by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = { if (!deleting) onClose() },
+        title = { Text("거래내역 삭제") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("거래 금액: ${formatWon(transaction.amount)}")
+                Text("이 거래를 삭제하면 되돌릴 수 없습니다.")
+                if (deleteFailed) {
+                    Text("거래를 삭제하지 못했습니다. 다시 시도해 주세요.", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (deleting) return@TextButton
+                    deleting = true
+                    deleteFailed = false
+                    scope.launch {
+                        try {
+                            // Room Flow가 거래 목록과 잔액을 다시 조회합니다.
+                            dao.deleteTransactionById(transaction.id, transaction.customerId)
+                            onClose()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            deleteFailed = true
+                        } finally {
+                            deleting = false
+                        }
+                    }
+                },
+                enabled = !deleting
+            ) {
+                Text(if (deleting) "삭제 중" else "삭제", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onClose, enabled = !deleting) { Text("취소") }
+        }
+    )
 }
 
 // 날짜와 시간을 각각 선택하고 기존 date 필드에 밀리초로 저장합니다.
