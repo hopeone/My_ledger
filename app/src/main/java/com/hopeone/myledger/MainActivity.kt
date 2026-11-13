@@ -22,6 +22,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.hopeone.myledger.data.CustomerEntity
 import com.hopeone.myledger.data.LedgerDatabase
+import com.hopeone.myledger.data.TransactionPhotoStore
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 // 앱의 첫 번째 화면을 실행하는 클래스
@@ -55,6 +58,16 @@ fun LedgerApp() {
     val dao = remember(database) {
         database.ledgerDao()
     }
+    val photoStore = remember(database) { TransactionPhotoStore(context, database) }
+    LaunchedEffect(photoStore) {
+        try {
+            photoStore.removeOrphanFiles()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w("LedgerApp", "Could not clean up unused transaction photos", error)
+        }
+    }
 
     // 데이터베이스의 고객 목록을 실시간으로 받아옵니다.
     // 고객이 추가되면 Room Flow가 새 목록을 전달합니다.
@@ -83,6 +96,7 @@ fun LedgerApp() {
         CustomerLedgerScreen(
             customer = selectedCustomer,
             dao = dao,
+            photoStore = photoStore,
             blue = blue,
             onBack = { selectedCustomerId = null }
         )

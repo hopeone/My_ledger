@@ -67,7 +67,32 @@ interface LedgerDao {
 
     // 선택한 고객에게 속한 거래 ID 한 건만 삭제합니다.
     @Query("DELETE FROM transactions WHERE id = :transactionId AND customerId = :customerId")
-    suspend fun deleteTransactionById(transactionId: Long, customerId: Long)
+    suspend fun deleteTransactionById(transactionId: Long, customerId: Long): Int
+
+    @Query(
+        """
+        SELECT photo.* FROM transaction_photos AS photo
+        JOIN transactions AS entry ON entry.id = photo.transactionId
+        WHERE entry.customerId = :customerId
+        ORDER BY photo.id
+        """
+    )
+    fun getCustomerPhotos(customerId: Long): Flow<List<TransactionPhotoEntity>>
+
+    @Query("SELECT relativePath FROM transaction_photos WHERE transactionId = :transactionId")
+    suspend fun getPhotoPaths(transactionId: Long): List<String>
+
+    @Query("SELECT relativePath FROM transaction_photos")
+    suspend fun getAllPhotoPaths(): List<String>
+
+    @Query("SELECT COUNT(*) FROM transaction_photos WHERE transactionId = :transactionId")
+    suspend fun countPhotos(transactionId: Long): Int
+
+    @Insert
+    suspend fun insertPhotos(photos: List<TransactionPhotoEntity>)
+
+    @Query("DELETE FROM transaction_photos WHERE id = :photoId AND transactionId = :transactionId")
+    suspend fun deletePhoto(photoId: Long, transactionId: Long): Int
 
     // 고객별 잔액을 계산합니다.
     // 외상은 더하고 상환은 빼는 방식입니다.

@@ -2,6 +2,7 @@ package com.hopeone.myledger
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import com.hopeone.myledger.data.CustomerEntity
 import com.hopeone.myledger.data.LedgerDao
 import com.hopeone.myledger.data.TransactionEntity
+import com.hopeone.myledger.data.TransactionPhotoStore
+import com.hopeone.myledger.data.MAX_TRANSACTION_PHOTOS
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -66,6 +69,7 @@ private val timeFormat = DateTimeFormatter.ofPattern("HH:mm", Locale.KOREA)
 internal fun CustomerLedgerScreen(
     customer: CustomerEntity,
     dao: LedgerDao,
+    photoStore: TransactionPhotoStore,
     blue: Color,
     onBack: () -> Unit
 ) {
@@ -78,6 +82,12 @@ internal fun CustomerLedgerScreen(
     var transactionType by rememberSaveable(customer.id) { mutableStateOf<String?>(null) }
 
     var transactionToDelete by remember(customer.id) { mutableStateOf<TransactionEntity?>(null) }
+    val photos by remember(dao, customer.id) {
+        dao.getCustomerPhotos(customer.id)
+    }.collectAsState(initial = emptyList())
+    val photosByTransaction = remember(photos) { photos.groupBy { it.transactionId } }
+    var attachmentTransactionId by rememberSaveable(customer.id) { mutableStateOf<Long?>(null) }
+    var initialPhotoIndex by rememberSaveable(customer.id) { mutableStateOf<Int?>(null) }
 
     BackHandler(onBack = onBack)
 
@@ -121,7 +131,25 @@ internal fun CustomerLedgerScreen(
                 history == null -> item { Text("거래 내역을 불러오는 중입니다.") }
                 history.isEmpty() -> item { Text("아직 거래 내역이 없습니다.") }
                 else -> items(history, key = { it.id }) { transaction ->
-                    TransactionRow(transaction, onDelete = { transactionToDelete = transaction })
+                    TransactionRow(
+                        transaction,
+                        onDelete = { transactionToDelete = transaction },
+                        attachments = {
+                            val attachments = photosByTransaction[transaction.id].orEmpty()
+                            if (attachments.isNotEmpty()) {
+                                TransactionPhotoThumbnails(attachments, photoStore) { index ->
+                                    initialPhotoIndex = index
+                                    attachmentTransactionId = transaction.id
+                                }
+                            }
+                            TextButton(onClick = {
+                                initialPhotoIndex = null
+                                attachmentTransactionId = transaction.id
+                            }, enabled = attachments.size < MAX_TRANSACTION_PHOTOS) {
+                                Text("사진 추가 (${attachments.size}/$MAX_TRANSACTION_PHOTOS)")
+                            }
+                        }
+                    )
                 }
             }
         }
@@ -143,19 +171,34 @@ internal fun CustomerLedgerScreen(
         TransactionDialog(
             customerId = customer.id,
             type = type,
-            dao = dao,
+            photoStore = photoStore,
             onClose = { transactionType = null }
         )
     }
 
     transactionToDelete?.let { transaction ->
-        DeleteTransactionDialog(transaction, dao, onClose = { transactionToDelete = null })
+        DeleteTransactionDialog(transaction, photoStore, onClose = { transactionToDelete = null })
+    }
+    attachmentTransactionId?.let { transactionId ->
+        if (transactions?.any { it.id == transactionId } == true) {
+            TransactionAttachments(
+                transactionId = transactionId,
+                photos = photosByTransaction[transactionId].orEmpty(),
+                initialIndex = initialPhotoIndex,
+                store = photoStore,
+                onClose = { attachmentTransactionId = null }
+            )
+        }
     }
 }
 
 // 저장한 거래 시각을 기기의 시간대로 바꿔 날짜와 시간을 표시합니다.
 @Composable
-private fun TransactionRow(transaction: TransactionEntity, onDelete: () -> Unit) {
+private fun TransactionRow(
+    transaction: TransactionEntity,
+    onDelete: () -> Unit,
+    attachments: @Composable () -> Unit
+) {
     val dateTime = Instant.ofEpochMilli(transaction.date).atZone(ZoneId.systemDefault())
     val sign = when (transaction.type) {
         CREDIT -> "+"
@@ -191,13 +234,16 @@ private fun TransactionRow(transaction: TransactionEntity, onDelete: () -> Unit)
                 )
             }
         }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            attachments()
+        }
     }
 }
 
 @Composable
 private fun DeleteTransactionDialog(
     transaction: TransactionEntity,
-    dao: LedgerDao,
+    photoStore: TransactionPhotoStore,
     onClose: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -211,6 +257,7 @@ private fun DeleteTransactionDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("거래 금액: ${formatWon(transaction.amount)}")
                 Text("이 거래를 삭제하면 되돌릴 수 없습니다.")
+                Text("첨부된 사진도 함께 삭제됩니다.")
                 if (deleteFailed) {
                     Text("거래를 삭제하지 못했습니다. 다시 시도해 주세요.", color = MaterialTheme.colorScheme.error)
                 }
@@ -225,7 +272,7 @@ private fun DeleteTransactionDialog(
                     scope.launch {
                         try {
                             // Room Flow가 거래 목록과 잔액을 다시 조회합니다.
-                            dao.deleteTransactionById(transaction.id, transaction.customerId)
+                            photoStore.deleteTransaction(transaction)
                             onClose()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
@@ -249,7 +296,12 @@ private fun DeleteTransactionDialog(
 
 // 날짜와 시간을 각각 선택하고 기존 date 필드에 밀리초로 저장합니다.
 @Composable
-private fun TransactionDialog(customerId: Long, type: String, dao: LedgerDao, onClose: () -> Unit) {
+private fun TransactionDialog(
+    customerId: Long,
+    type: String,
+    photoStore: TransactionPhotoStore,
+    onClose: () -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val zone = ZoneId.systemDefault()
@@ -260,6 +312,8 @@ private fun TransactionDialog(customerId: Long, type: String, dao: LedgerDao, on
     var memo by rememberSaveable { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var saveFailed by remember { mutableStateOf(false) }
+    var photoUris by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var selectionTooLarge by remember { mutableStateOf(false) }
     val amount = amountInput.trim().toLongOrNull()?.takeIf { it > 0 }
     val invalidAmount = amountInput.isNotEmpty() && amount == null
     val selectedDate = LocalDate.ofEpochDay(date)
@@ -320,6 +374,27 @@ private fun TransactionDialog(customerId: Long, type: String, dao: LedgerDao, on
                 ) {
                     Text("시간 ${selectedTime.format(timeFormat)}")
                 }
+                if (saveFailed) {
+                    Text("거래를 저장하지 못했습니다. 다시 시도해 주세요.", color = MaterialTheme.colorScheme.error)
+                }
+                LedgerPhotoPickerButton(
+                    remaining = MAX_TRANSACTION_PHOTOS - photoUris.size,
+                    enabled = !saving,
+                    label = "사진 추가 (${photoUris.size}/$MAX_TRANSACTION_PHOTOS)"
+                ) { uris ->
+                    val selection = (photoUris + uris.map(Uri::toString)).distinct()
+                    selectionTooLarge = selection.size > MAX_TRANSACTION_PHOTOS
+                    if (!selectionTooLarge) photoUris = ArrayList(selection)
+                }
+                if (selectionTooLarge) {
+                    Text("한 거래에 최대 10장까지 선택할 수 있습니다.", color = MaterialTheme.colorScheme.error)
+                }
+                if (photoUris.isNotEmpty()) {
+                    TextButton(onClick = {
+                        photoUris = arrayListOf()
+                        selectionTooLarge = false
+                    }, enabled = !saving) { Text("사진 선택 지우기") }
+                }
                 OutlinedTextField(
                     value = memo,
                     onValueChange = { memo = it },
@@ -328,9 +403,6 @@ private fun TransactionDialog(customerId: Long, type: String, dao: LedgerDao, on
                     enabled = !saving,
                     maxLines = 3
                 )
-                if (saveFailed) {
-                    Text("거래를 저장하지 못했습니다. 다시 시도해 주세요.", color = MaterialTheme.colorScheme.error)
-                }
             }
         },
         confirmButton = {
@@ -342,14 +414,15 @@ private fun TransactionDialog(customerId: Long, type: String, dao: LedgerDao, on
                     saveFailed = false
                     scope.launch {
                         try {
-                            dao.insertTransaction(
+                            photoStore.saveTransaction(
                                 TransactionEntity(
                                     customerId = customerId,
                                     type = type,
                                     amount = amount,
                                     date = selectedDate.atTime(selectedTime).atZone(zone).toInstant().toEpochMilli(),
                                     memo = memo.trim()
-                                )
+                                ),
+                                photoUris.map(Uri::parse)
                             )
                             onClose()
                         } catch (cancelled: CancellationException) {
