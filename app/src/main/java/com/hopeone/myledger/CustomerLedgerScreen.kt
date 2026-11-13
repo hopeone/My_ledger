@@ -126,7 +126,7 @@ internal fun CustomerLedgerScreen(
                 Text("상환")
             }
             Button(onClick = { transactionType = CREDIT }, modifier = Modifier.weight(1f)) {
-                Text("외상")
+                Text("거래추가")
             }
         }
     }
@@ -299,7 +299,7 @@ private fun formatWon(amount: Long): String = String.format(Locale.KOREA, "%,d�
 
 // 상환액이 외상보다 많으면 기존 고객 목록과 동일하게 선불로 표시합니다.
 internal fun ledgerBalanceText(balance: Long): String = when {
-    balance > 0 -> "${formatWon(balance)} 외상"
+    balance > 0 -> "${formatWon(balance)} 미결제"
     balance < 0 -> "${formatWon(balance).removePrefix("-")} 선불"
     else -> "0원"
 }

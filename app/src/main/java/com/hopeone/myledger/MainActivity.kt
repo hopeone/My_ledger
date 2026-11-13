@@ -105,7 +105,7 @@ fun LedgerApp() {
                 .padding(20.dp)
         ) {
             Text(
-                text = "외상장부",
+                text = "거래장부",
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold
