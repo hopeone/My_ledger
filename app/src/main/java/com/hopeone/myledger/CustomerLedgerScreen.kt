@@ -57,6 +57,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import androidx.compose.ui.unit.sp
 
 // 거래 유형은 잔액을 계산하는 LedgerDao의 값과 동일하게 저장합니다.
 private const val CREDIT = "외상"
@@ -207,25 +208,53 @@ private fun TransactionRow(
     }
     Card(Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
+            Column(
+                Modifier.weight(1f).padding(vertical = 12.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(transaction.type, Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                    Text(sign + formatWon(transaction.amount), fontWeight = FontWeight.Bold)
-                }
+                    // 거래 종류 표시
+                    Text(
+                        text = if (transaction.type == CREDIT) "거래 추가" else "상환",
+                        modifier = Modifier.weight(1f),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    // 거래 금액 표시
+                    Text(
+                        text = sign + formatWon(transaction.amount),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } // 거래 종류와 금액 Row 종료
+
+                // 거래 날짜 및 시간
                 Text(
-                    "${dateTime.format(dateFormat)} ${dateTime.format(timeFormat)}",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "${dateTime.format(dateFormat)} ${dateTime.format(timeFormat)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontSize = 20.sp
                 )
+
+                // 주문자 정보 표시
                 if (transaction.memo.isNotBlank()) {
-                    Text(transaction.memo, Modifier.padding(top = 4.dp))
+                    Text(
+                        text = "주문: ${transaction.memo}",
+                        modifier = Modifier.padding(top = 4.dp),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-            }
+            } // Column 종료
+
+            // 거래 삭제 버튼
             IconButton(onClick = onDelete) {
                 Icon(
                     painter = painterResource(R.drawable.ic_delete_transaction),
@@ -233,12 +262,13 @@ private fun TransactionRow(
                     modifier = Modifier.size(20.dp)
                 )
             }
-        }
+        } // 바깥 Row 종료
+    } // Card 종료
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             attachments()
         }
     }
-}
+
 
 @Composable
 private fun DeleteTransactionDialog(
@@ -399,7 +429,8 @@ private fun TransactionDialog(
                     value = memo,
                     onValueChange = { memo = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("메모 (선택)") },
+                    label = { Text("주문자", fontSize = 18.sp) },
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 20.sp),
                     enabled = !saving,
                     maxLines = 3
                 )
