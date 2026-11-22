@@ -79,6 +79,7 @@ fun LedgerApp() {
 
     // 화면을 다시 만들 때도 선택한 고객을 ID로 찾아 장부를 복원합니다.
     var selectedCustomerId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
 
     // 데이터베이스 저장 작업에 사용할 코루틴입니다.
     val scope = rememberCoroutineScope()
@@ -91,6 +92,11 @@ fun LedgerApp() {
     // 고객 이름 입력값
     var customerName by remember {
         mutableStateOf("")
+    }
+
+    if (showSettings) {
+        LedgerSettingsScreen(blue, onBack = { showSettings = false })
+        return
     }
 
     val selectedCustomer = customers.firstOrNull { it.id == selectedCustomerId }
@@ -114,18 +120,21 @@ fun LedgerApp() {
     ) {
 
         // 상단 파란색 제목 영역
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(blue)
-                .padding(20.dp)
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "거래장부",
+                modifier = Modifier.weight(1f),
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold
             )
+            TextButton(onClick = { showSettings = true }) { Text("설정", color = Color.White) }
         }
 
         Box(Modifier.padding(horizontal = 12.dp)) { LedgerSyncControls(backup) }

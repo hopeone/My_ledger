@@ -17,8 +17,8 @@ android {
         applicationId = "com.hopeone.myledger"
         minSdk = 26
         targetSdk = 37
-        versionCode = 5
-        versionName = "1.5"
+        versionCode = 9
+        versionName = "1.8.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -38,6 +38,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

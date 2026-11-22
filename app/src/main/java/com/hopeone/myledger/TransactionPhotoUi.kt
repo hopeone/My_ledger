@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -39,6 +40,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import com.hopeone.myledger.data.TransactionPhotoEntity
 import com.hopeone.myledger.data.TransactionPhotoStore
 import com.hopeone.myledger.data.MAX_TRANSACTION_PHOTOS
@@ -56,10 +58,9 @@ internal fun TransactionPhotoThumbnails(
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         itemsIndexed(photos, key = { _, photo -> photo.id }) { index, photo ->
-            LedgerPhoto(
+            LedgerThumbnail(
                 file = store.file(photo.relativePath),
                 description = "첨부 사진 ${index + 1}",
-                thumbnail = true,
                 modifier = Modifier.size(64.dp).clickable { onOpen(index) }
             )
         }
@@ -99,7 +100,11 @@ internal fun TransactionAttachments(
     onClose: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val pager = rememberPagerState(initialPage = initialIndex ?: 0) { photos.size }
+    val pager = rememberPagerState(initialPage = (initialIndex ?: 0).coerceIn(0, photos.lastIndex.coerceAtLeast(0))) {
+        photos.size
+    }
+    var zoomedPhotoId by remember { mutableStateOf<Long?>(null) }
+    val current = pager.currentPage.coerceIn(0, photos.lastIndex.coerceAtLeast(0))
     var pendingDelete by remember { mutableStateOf<TransactionPhotoEntity?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -109,7 +114,14 @@ internal fun TransactionAttachments(
     ) {
         Scaffold { padding ->
             Column(Modifier.fillMaxSize().padding(padding).padding(12.dp)) {
-                TextButton(onClick = onClose, enabled = !busy) { Text("닫기") }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (photos.isNotEmpty()) Text("${current + 1} / ${photos.size}", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = onClose, enabled = !busy) { Text("닫기") }
+                }
                 if (photos.isEmpty()) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text("첨부된 사진이 없습니다.")
@@ -118,17 +130,19 @@ internal fun TransactionAttachments(
                     HorizontalPager(
                         state = pager,
                         key = { photos[it].id },
+                        userScrollEnabled = zoomedPhotoId != photos[current].id,
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     ) { index ->
-                        LedgerPhoto(
-                            file = store.file(photos[index].relativePath),
+                        val photo = photos[index]
+                        ZoomableLedgerPhoto(
+                            uri = store.file(photo.relativePath).toUri(),
                             description = "첨부 사진 ${index + 1}",
-                            thumbnail = false,
-                            modifier = Modifier.fillMaxSize()
+                            onZoomChanged = { zoomed ->
+                                if (zoomed) zoomedPhotoId = photo.id
+                                else if (zoomedPhotoId == photo.id) zoomedPhotoId = null
+                            }
                         )
                     }
-                    val current = pager.currentPage.coerceIn(0, photos.lastIndex)
-                    Text("${current + 1} / ${photos.size}", Modifier.align(Alignment.CenterHorizontally))
                     TextButton(
                         onClick = { pendingDelete = photos[current] },
                         enabled = !busy,
@@ -191,26 +205,23 @@ internal fun TransactionAttachments(
 }
 
 @Composable
-private fun LedgerPhoto(file: File, description: String, thumbnail: Boolean, modifier: Modifier) {
-    val bitmap by produceState<ImageBitmap?>(null, file, thumbnail) {
+private fun LedgerThumbnail(file: File, description: String, modifier: Modifier) {
+    val bitmap by produceState<ImageBitmap?>(null, file) {
         value = null
         value = withContext(Dispatchers.IO) {
-            val options = BitmapFactory.Options()
-            if (thumbnail) {
-                options.inJustDecodeBounds = true
-                BitmapFactory.decodeFile(file.path, options)
-                options.inSampleSize = Integer.highestOneBit((maxOf(options.outWidth, options.outHeight) / 160).coerceAtLeast(1))
-                options.inJustDecodeBounds = false
-            }
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.path, options)
+            options.inSampleSize = Integer.highestOneBit((maxOf(options.outWidth, options.outHeight) / 160).coerceAtLeast(1))
+            options.inJustDecodeBounds = false
             BitmapFactory.decodeFile(file.path, options)?.asImageBitmap()
         }
     }
     Box(modifier, contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) {
-            Image(image, description, Modifier.fillMaxSize(), contentScale = if (thumbnail) ContentScale.Crop else ContentScale.Fit)
+            Image(image, description, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
-            Text(if (thumbnail) "사진" else "사진을 불러오는 중이거나 파일을 찾을 수 없습니다.")
+            Text("사진")
         }
     }
 }
