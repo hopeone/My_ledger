@@ -12,6 +12,23 @@ import kotlinx.coroutines.flow.Flow
 // Room이 실제 실행 코드를 자동으로 생성합니다.
 @Dao
 interface LedgerDao {
+    @Query("SELECT * FROM customers ORDER BY id")
+    suspend fun snapshotCustomers(): List<CustomerEntity>
+
+    @Query("SELECT * FROM transactions ORDER BY id")
+    suspend fun snapshotTransactions(): List<TransactionEntity>
+
+    @Query("SELECT * FROM transaction_photos ORDER BY id")
+    suspend fun snapshotPhotos(): List<TransactionPhotoEntity>
+
+    @Query("DELETE FROM customers")
+    suspend fun clearCustomersForRestore()
+
+    @Insert
+    suspend fun restoreCustomers(customers: List<CustomerEntity>)
+
+    @Insert
+    suspend fun restoreTransactions(transactions: List<TransactionEntity>)
 
     // 모든 고객을 이름순으로 가져옵니다.
     // Flow는 데이터가 변경되면 화면에 새 목록을 전달합니다.
@@ -57,7 +74,7 @@ interface LedgerDao {
     @Update
     suspend fun updateTransaction(
         transaction: TransactionEntity
-    )
+    ): Int
 
     // 거래 내역 한 건을 삭제합니다.
     @Delete
@@ -84,6 +101,9 @@ interface LedgerDao {
 
     @Query("SELECT relativePath FROM transaction_photos")
     suspend fun getAllPhotoPaths(): List<String>
+
+    @Query("SELECT photo.relativePath FROM transaction_photos photo JOIN transactions entry ON entry.id = photo.transactionId WHERE entry.customerId = :customerId")
+    suspend fun getCustomerPhotoPaths(customerId: Long): List<String>
 
     @Query("SELECT COUNT(*) FROM transaction_photos WHERE transactionId = :transactionId")
     suspend fun countPhotos(transactionId: Long): Int

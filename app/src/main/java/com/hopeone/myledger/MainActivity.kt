@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.hopeone.myledger.data.CustomerEntity
+import com.hopeone.myledger.data.LedgerBackup
 import com.hopeone.myledger.data.LedgerDatabase
 import com.hopeone.myledger.data.TransactionPhotoStore
 import android.util.Log
@@ -59,6 +60,7 @@ fun LedgerApp() {
         database.ledgerDao()
     }
     val photoStore = remember(database) { TransactionPhotoStore(context, database) }
+    val backup = remember(database, photoStore) { LedgerBackup(database, photoStore) }
     LaunchedEffect(photoStore) {
         try {
             photoStore.removeOrphanFiles()
@@ -125,6 +127,8 @@ fun LedgerApp() {
                 fontWeight = FontWeight.Bold
             )
         }
+
+        Box(Modifier.padding(horizontal = 12.dp)) { LedgerSyncControls(backup) }
 
         // SQLite에서 불러온 고객 목록
         LazyColumn(

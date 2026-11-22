@@ -72,6 +72,17 @@ internal class TransactionPhotoStore(context: Context, private val database: Led
         paths.forEach { file(it).delete() }
     }
 
+    suspend fun deleteCustomer(customer: CustomerEntity) = changePhotos {
+        val paths = database.withTransaction {
+            dao.getCustomerPhotoPaths(customer.id).also { dao.deleteCustomer(customer) }
+        }
+        paths.forEach { file(it).delete() }
+    }
+
+    fun preparePhotoDirectory() {
+        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create photo directory")
+    }
+
     suspend fun removeOrphanFiles() = changePhotos {
         val referenced = dao.getAllPhotoPaths().toHashSet()
         directory.listFiles()?.forEach { photo ->
@@ -87,7 +98,7 @@ internal class TransactionPhotoStore(context: Context, private val database: Led
         val paths = mutableListOf<String>()
         var committed = false
         try {
-            if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create photo directory")
+            preparePhotoDirectory()
             for (uri in uris) {
                 val path = "${UUID.randomUUID()}.jpg"
                 paths.add(path)
@@ -156,7 +167,7 @@ internal class TransactionPhotoStore(context: Context, private val database: Led
         return result
     }
 
-    private suspend fun <T> changePhotos(block: suspend () -> T): T = photoLock.withLock {
+    internal suspend fun <T> changePhotos(block: suspend () -> T): T = photoLock.withLock {
         // 화면을 닫아도 시작한 파일과 DB 변경을 마무리한 뒤 잠금을 풉니다.
         withContext(Dispatchers.IO + NonCancellable) { block() }
     }
